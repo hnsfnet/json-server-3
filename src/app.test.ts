@@ -28,8 +28,22 @@ writeFileSync(join(tmpDir, file), 'utf-8')
 // Create app
 const db = new Low<Data>(new Memory<Data>(), {})
 db.data = {
-  posts: [{ id: '1', title: 'foo' }],
-  comments: [{ id: '1', postId: '1' }],
+  posts: [
+    { id: '1', title: 'foo' },
+    { id: '2', title: 'bar' },
+    { id: '3', title: 'baz' },
+    { id: '4', title: 'qux' },
+    { id: '5', title: 'quux' },
+  ],
+  comments: [
+    { id: '1', postId: '1' },
+    { id: '2', postId: '1' },
+    { id: '3', postId: '2' },
+  ],
+  tags: [
+    { id: '1', postId: '1', name: 'tech' },
+    { id: '2', postId: '2', name: 'life' },
+  ],
   object: { f1: 'foo' },
 }
 const app = createApp(db, { static: [tmpDir] })
@@ -126,8 +140,22 @@ await test('createApp', async (t) => {
   await t.test('GET /posts?_where=... uses JSON query', async () => {
     // Reset data since previous tests may have modified it
     db.data = {
-      posts: [{ id: '1', title: 'foo' }],
-      comments: [{ id: '1', postId: '1' }],
+      posts: [
+        { id: '1', title: 'foo' },
+        { id: '2', title: 'bar' },
+        { id: '3', title: 'baz' },
+        { id: '4', title: 'qux' },
+        { id: '5', title: 'quux' },
+      ],
+      comments: [
+        { id: '1', postId: '1' },
+        { id: '2', postId: '1' },
+        { id: '3', postId: '2' },
+      ],
+      tags: [
+        { id: '1', postId: '1', name: 'tech' },
+        { id: '2', postId: '2', name: 'life' },
+      ],
       object: { f1: 'foo' },
     }
     const where = encodeURIComponent(JSON.stringify({ title: { eq: 'foo' } }))
@@ -178,5 +206,110 @@ await test('createApp', async (t) => {
     assert.equal(response.status, 400)
     const data = await response.json()
     assert.deepEqual(data, { error: 'Body must be a JSON object' })
+  })
+
+  // --- v0 compatibility tests ---
+
+  await t.test('v0 compat: _limit returns limited results with pagination', async () => {
+    db.data = {
+      posts: [
+        { id: '1', title: 'foo' },
+        { id: '2', title: 'bar' },
+        { id: '3', title: 'baz' },
+        { id: '4', title: 'qux' },
+        { id: '5', title: 'quux' },
+      ],
+      comments: [
+        { id: '1', postId: '1' },
+        { id: '2', postId: '1' },
+        { id: '3', postId: '2' },
+      ],
+      tags: [
+        { id: '1', postId: '1', name: 'tech' },
+        { id: '2', postId: '2', name: 'life' },
+      ],
+      object: { f1: 'foo' },
+    }
+    const response = await fetch(`http://localhost:${port}/posts?_limit=2`)
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.equal(data.data.length, 2)
+    assert.equal(data.items, 5)
+    assert.equal(data.pages, 3)
+    assert.equal(data.first, 1)
+    assert.equal(data.next, 2)
+  })
+
+  await t.test('v0 compat: _start + _limit returns correct page', async () => {
+    const response = await fetch(`http://localhost:${port}/posts?_start=2&_limit=2`)
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.equal(data.data.length, 2)
+    assert.deepEqual(
+      data.data.map((p: any) => p.id),
+      ['3', '4'],
+    )
+  })
+
+  await t.test('v0 compat: _start + _end returns correct page', async () => {
+    const response = await fetch(`http://localhost:${port}/posts?_start=0&_end=3`)
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.equal(data.data.length, 3)
+    assert.deepEqual(
+      data.data.map((p: any) => p.id),
+      ['1', '2', '3'],
+    )
+  })
+
+  await t.test('v0 compat: _expand on list works like _embed', async () => {
+    const response = await fetch(`http://localhost:${port}/posts?_expand=comments&_limit=1`)
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.equal(data.data.length, 1)
+    assert.ok(Array.isArray(data.data[0].comments))
+    assert.equal(data.data[0].comments.length, 2)
+  })
+
+  await t.test('v0 compat: _expand on single item works like _embed', async () => {
+    const response = await fetch(`http://localhost:${port}/posts/1?_expand=comments`)
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.ok(Array.isArray(data.comments))
+    assert.equal(data.comments.length, 2)
+  })
+
+  await t.test('v0 compat: _expand + _embed merged on single item', async () => {
+    const response = await fetch(
+      `http://localhost:${port}/posts/1?_expand=comments&_embed=tags`,
+    )
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.ok(Array.isArray(data.comments))
+    assert.ok(Array.isArray(data.tags))
+  })
+
+  await t.test('v0 compat: _limit + _sort works together', async () => {
+    const response = await fetch(`http://localhost:${port}/posts?_limit=2&_sort=-title`)
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.equal(data.data.length, 2)
+    // sorted desc by title: qux, quux, foo, baz, bar
+    assert.equal(data.data[0].title, 'qux')
+    assert.equal(data.data[1].title, 'quux')
+  })
+
+  await t.test('v0 compat: v1 _page takes precedence over _start', async () => {
+    const response = await fetch(
+      `http://localhost:${port}/posts?_page=2&_per_page=2&_start=0&_limit=2`,
+    )
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    // _page=2 with _per_page=2 should give items 3,4
+    assert.equal(data.data.length, 2)
+    assert.deepEqual(
+      data.data.map((p: any) => p.id),
+      ['3', '4'],
+    )
   })
 })

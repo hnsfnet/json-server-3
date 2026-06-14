@@ -251,13 +251,69 @@ json-server db.json -s ./static -s ./node_modules
 
 Static files are served with standard MIME types and can include HTML, CSS, JavaScript, images, and other assets.
 
+## v0 Compatibility
+
+This version includes backward-compatible support for common v0 query parameters, so existing mock scripts and front-end code using the old parameter names will continue to work without changes.
+
+### Pagination (v0 style)
+
+| v0 Parameter | v1 Equivalent | Description |
+|---|---|---|
+| `_limit` | `_per_page` | Number of items per page |
+| `_start` + `_end` | `_page` + `_per_page` | Offset-based range (e.g. `_start=10&_end=20`) |
+| `_start` + `_limit` | `_page` + `_per_page` | Offset + count (e.g. `_start=20&_limit=10`) |
+
+```http
+GET /posts?_limit=10                  # First 10 items (page 1)
+GET /posts?_start=10&_end=20          # Items 10-19 (page 2, per_page 10)
+GET /posts?_start=20&_limit=10        # Items 20-29 (page 3, per_page 10)
+```
+
+**Precedence:** When both v0 and v1 pagination params are present, v1 params (`_page`, `_per_page`) take precedence.
+
+The response format is always the same paginated structure regardless of which params are used:
+
+```json
+{
+  "first": 1,
+  "prev": null,
+  "next": 2,
+  "last": 5,
+  "pages": 5,
+  "items": 50,
+  "data": [...]
+}
+```
+
+### Relationships (v0 style)
+
+| v0 Parameter | v1 Equivalent | Description |
+|---|---|---|
+| `_expand` | `_embed` | Include related resources |
+
+```http
+GET /posts?_expand=comments           # Same as _embed=comments
+GET /posts/1?_expand=comments         # Works on single items too
+GET /posts/1?_expand=comments&_embed=tags  # Both can be combined
+```
+
+### Mixing v0 and v1 params
+
+v0 and v1 parameters can be freely combined with `_sort`, `_where`, and each other:
+
+```http
+GET /posts?_limit=5&_sort=-views
+GET /posts?_start=0&_end=10&_sort=title
+GET /posts?_expand=comments&_limit=3&_sort=-views
+```
+
 ## Migration Notes (v0 → v1)
 
 If you are upgrading from json-server v0.x, note these behavioral changes:
 
 - **ID handling:** `id` is always a string and will be auto-generated if not provided
-- **Pagination:** Use `_per_page` with `_page` instead of the deprecated `_limit` parameter
-- **Relationships:** Use `_embed` instead of `_expand` for including related resources
+- **Pagination:** v0 params (`_limit`, `_start`, `_end`) are still supported via the compatibility layer, but we recommend migrating to `_page` + `_per_page` for new code
+- **Relationships:** v0 `_expand` is still supported as an alias for `_embed`, but prefer `_embed` for new code
 - **Request delays:** Use browser DevTools (Network tab > throttling) instead of the removed `--delay` CLI option
 
 > **New to json-server?** These notes are for users migrating from v0. If this is your first time using json-server, you can ignore this section.

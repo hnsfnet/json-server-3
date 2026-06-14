@@ -8,6 +8,7 @@ import { Low } from 'lowdb'
 import { json } from 'milliparsec'
 import sirv from 'sirv'
 
+import { normalizeQueryParams, RESERVED_QUERY_KEYS } from './compat-params.ts'
 import { parseWhere } from './parse-where.ts'
 import type { Data } from './service.ts'
 import { isItem, Service } from './service.ts'
@@ -24,8 +25,6 @@ const eta = new Eta({
   views: join(__dirname, '../views'),
   cache: isProduction,
 })
-
-const RESERVED_QUERY_KEYS = new Set(['_sort', '_page', '_per_page', '_embed', '_where'])
 
 function parseListParams(req: any) {
   const queryString = req.url.split('?')[1] ?? ''
@@ -51,17 +50,14 @@ function parseListParams(req: any) {
     }
   }
 
-  const pageRaw = params.get('_page')
-  const perPageRaw = params.get('_per_page')
-  const page = pageRaw === null ? undefined : Number.parseInt(pageRaw, 10)
-  const perPage = perPageRaw === null ? undefined : Number.parseInt(perPageRaw, 10)
+  const normalized = normalizeQueryParams(params, req.query)
 
   return {
     where,
-    sort: params.get('_sort') ?? undefined,
-    page: Number.isNaN(page) ? undefined : page,
-    perPage: Number.isNaN(perPage) ? undefined : perPage,
-    embed: req.query['_embed'],
+    sort: normalized.sort,
+    page: normalized.page,
+    perPage: normalized.perPage,
+    embed: normalized.embed,
   }
 }
 
@@ -89,6 +85,12 @@ function withIdAndBody(
     res.locals['data'] = await action(name, id, req.body)
     next?.()
   }
+}
+
+function ensureQueryArray(val: unknown): string[] {
+  if (Array.isArray(val)) return val.filter((v): v is string => typeof v === 'string')
+  if (typeof val === 'string') return [val]
+  return []
 }
 
 export function createApp(db: Low<Data>, options: AppOptions = {}) {
@@ -136,7 +138,13 @@ export function createApp(db: Low<Data>, options: AppOptions = {}) {
 
   app.get('/:name/:id', (req, res, next) => {
     const { name = '', id = '' } = req.params
-    res.locals['data'] = service.findById(name, id, req.query)
+    // Support _expand as alias for _embed on single-item lookups
+    const embed = [
+      ...ensureQueryArray(req.query['_embed']),
+      ...ensureQueryArray(req.query['_expand']),
+    ]
+    const _embed = embed.length > 0 ? embed : undefined
+    res.locals['data'] = service.findById(name, id, { _embed })
     next?.()
   })
 
