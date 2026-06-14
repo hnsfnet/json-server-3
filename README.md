@@ -232,6 +232,29 @@ GET /comments?_embed=post
 GET /posts?_where={"or":[{"views":{"gt":100}},{"author":{"name":{"lt":"m"}}}]}
 ```
 
+### CSV Export
+
+Append `_format=csv` to any list endpoint to download the results as a CSV file instead of JSON. All filters and sort parameters are applied; pagination parameters (`_page`, `_per_page`) are **ignored** so the export always contains the full matching result set.
+
+```http
+GET /posts?_format=csv
+GET /posts?views:gt=100&_sort=-views&_format=csv
+GET /comments?postId=1&_format=csv
+```
+
+The response includes:
+
+- `Content-Type: text/csv; charset=utf-8`
+- `Content-Disposition: attachment; filename="<resource>.csv"`
+- A UTF-8 BOM so the file opens correctly in Excel
+- Proper escaping of commas, double-quotes, and newlines inside field values
+
+> **Tip:** combine `_format=csv` with `_where` for complex filtered exports:
+>
+> ```http
+> GET /posts?_where={"views":{"gt":100}}&_format=csv
+> ```
+
 ## Delete dependents
 
 ```http

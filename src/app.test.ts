@@ -179,4 +179,117 @@ await test('createApp', async (t) => {
     const data = await response.json()
     assert.deepEqual(data, { error: 'Body must be a JSON object' })
   })
+
+  // --- CSV Export tests ---
+
+  await t.test('GET /posts?_format=csv returns CSV with correct headers', async () => {
+    // Reset data
+    db.data = {
+      posts: [
+        { id: '1', title: 'foo', views: 100 },
+        { id: '2', title: 'bar', views: 200 },
+      ],
+      comments: [{ id: '1', postId: '1' }],
+      object: { f1: 'foo' },
+    }
+    const response = await fetch(`http://localhost:${port}/posts?_format=csv`)
+    assert.equal(response.status, 200)
+    assert.ok(
+      response.headers.get('content-type')?.includes('text/csv'),
+      'Content-Type should be text/csv',
+    )
+    assert.ok(
+      response.headers.get('content-disposition')?.includes('posts.csv'),
+      'Content-Disposition should include filename',
+    )
+    // Check BOM via raw bytes (response.text() strips the BOM)
+    const buf = Buffer.from(await response.clone().arrayBuffer())
+    assert.ok(buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf, 'should start with UTF-8 BOM')
+    // response.text() strips BOM automatically
+    const body = await response.text()
+    assert.ok(body.startsWith('id,title,views'), 'header row should contain expected columns')
+    assert.ok(body.includes('1,foo,100'), 'should contain first row data')
+    assert.ok(body.includes('2,bar,200'), 'should contain second row data')
+  })
+
+  await t.test('GET /posts?_format=csv respects filter and sort', async () => {
+    db.data = {
+      posts: [
+        { id: '1', title: 'alpha', views: 300 },
+        { id: '2', title: 'beta', views: 100 },
+        { id: '3', title: 'gamma', views: 200 },
+      ],
+      comments: [{ id: '1', postId: '1' }],
+      object: { f1: 'foo' },
+    }
+    // Filter views > 150, sort by views ascending
+    const response = await fetch(
+      `http://localhost:${port}/posts?views:gt=150&_sort=views&_format=csv`,
+    )
+    assert.equal(response.status, 200)
+    const text = await response.text() // BOM stripped by text()
+    const lines = text.split('\r\n').filter(Boolean)
+    assert.equal(lines[0], 'id,title,views')
+    // Only views > 150: alpha(300) and gamma(200), sorted ascending: gamma(200), alpha(300)
+    assert.equal(lines[1], '3,gamma,200')
+    assert.equal(lines[2], '1,alpha,300')
+    assert.equal(lines.length, 3, 'should have header + 2 data rows')
+  })
+
+  await t.test('GET /posts?_format=csv exports all records even when _page is set', async () => {
+    db.data = {
+      posts: [
+        { id: '1', title: 'a' },
+        { id: '2', title: 'b' },
+        { id: '3', title: 'c' },
+        { id: '4', title: 'd' },
+        { id: '5', title: 'e' },
+      ],
+      comments: [],
+      object: { f1: 'foo' },
+    }
+    // Even with _page=1&_per_page=2, CSV export should return ALL records
+    const response = await fetch(
+      `http://localhost:${port}/posts?_page=1&_per_page=2&_format=csv`,
+    )
+    assert.equal(response.status, 200)
+    const text = await response.text() // BOM stripped
+    const lines = text.split('\r\n').filter(Boolean)
+    assert.equal(lines.length, 6, 'should have header + 5 data rows (all records)')
+  })
+
+  await t.test('GET /posts?_format=csv returns header-only for empty results', async () => {
+    db.data = {
+      posts: [{ id: '1', title: 'foo' }],
+      comments: [],
+      object: { f1: 'foo' },
+    }
+    // Filter that matches nothing
+    const response = await fetch(
+      `http://localhost:${port}/posts?title:eq=nonexistent&_format=csv`,
+    )
+    assert.equal(response.status, 200)
+    const text = await response.text() // BOM stripped
+    // Empty result: no headers collected, just the trailing CRLF
+    assert.ok(text.endsWith('\r\n'), 'should end with CRLF')
+  })
+
+  await t.test('GET /not-found?_format=csv returns 404', async () => {
+    const response = await fetch(`http://localhost:${port}/not-found?_format=csv`)
+    assert.equal(response.status, 404)
+  })
+
+  await t.test('GET /posts without _format still returns JSON', async () => {
+    db.data = {
+      posts: [{ id: '1', title: 'foo' }],
+      comments: [],
+      object: { f1: 'foo' },
+    }
+    const response = await fetch(`http://localhost:${port}/posts`)
+    assert.equal(response.status, 200)
+    assert.ok(
+      response.headers.get('content-type')?.includes('application/json'),
+      'should return JSON when _format is not set',
+    )
+  })
 })

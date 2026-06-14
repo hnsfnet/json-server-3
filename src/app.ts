@@ -8,8 +8,9 @@ import { Low } from 'lowdb'
 import { json } from 'milliparsec'
 import sirv from 'sirv'
 
+import { toCSV } from './csv.ts'
 import { parseWhere } from './parse-where.ts'
-import type { Data } from './service.ts'
+import type { Data, Item } from './service.ts'
 import { isItem, Service } from './service.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -25,7 +26,7 @@ const eta = new Eta({
   cache: isProduction,
 })
 
-const RESERVED_QUERY_KEYS = new Set(['_sort', '_page', '_per_page', '_embed', '_where'])
+const RESERVED_QUERY_KEYS = new Set(['_sort', '_page', '_per_page', '_embed', '_where', '_format'])
 
 function parseListParams(req: any) {
   const queryString = req.url.split('?')[1] ?? ''
@@ -123,6 +124,42 @@ export function createApp(db: Low<Data>, options: AppOptions = {}) {
   app.get('/:name', (req, res, next) => {
     const { name = '' } = req.params
     const { where, sort, page, perPage, embed } = parseListParams(req)
+
+    // Check for CSV export request
+    const queryString = req.url.split('?')[1] ?? ''
+    const params = new URLSearchParams(queryString)
+    const format = params.get('_format')
+
+    if (format === 'csv') {
+      // For CSV export: fetch ALL matching records (ignore pagination) so users
+      // always get the complete filtered/sorted result set, never a partial page.
+      const result = service.find(name, {
+        where,
+        sort,
+        // deliberately omit page/perPage — export always returns the full set
+        embed,
+      })
+
+      if (result === undefined) {
+        res.status(404).json({ error: 'Not Found' })
+        return
+      }
+
+      // If the resource is a single object (not an array), wrap it for CSV
+      const items: Item[] = Array.isArray(result)
+        ? result
+        : isItem(result)
+          ? [result]
+          : []
+
+      const csv = toCSV(items)
+      const filename = `${name}.csv`
+      res
+        .setHeader('Content-Type', 'text/csv; charset=utf-8')
+        .setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+        .send(csv)
+      return
+    }
 
     res.locals['data'] = service.find(name, {
       where,
