@@ -147,6 +147,72 @@ await test('createApp', async (t) => {
     assert.deepEqual(data, [{ id: '1', title: 'foo' }])
   })
 
+  await t.test('v0-compatible query params', async (t) => {
+    // Reset to a known multi-item dataset
+    db.data = {
+      posts: [
+        { id: '1', title: 'a' },
+        { id: '2', title: 'b' },
+        { id: '3', title: 'c' },
+      ],
+      comments: [{ id: '1', postId: '1' }],
+      object: { f1: 'foo' },
+    }
+
+    await t.test('_limit returns a plain array slice', async () => {
+      const response = await fetch(`http://localhost:${port}/posts?_limit=2`)
+      assert.equal(response.status, 200)
+      const data = await response.json()
+      assert.ok(Array.isArray(data), 'should keep the plain array shape')
+      assert.deepEqual(data, [
+        { id: '1', title: 'a' },
+        { id: '2', title: 'b' },
+      ])
+    })
+
+    await t.test('_start and _end slice the list', async () => {
+      const response = await fetch(`http://localhost:${port}/posts?_start=1&_end=3`)
+      assert.equal(response.status, 200)
+      const data = await response.json()
+      assert.deepEqual(data, [
+        { id: '2', title: 'b' },
+        { id: '3', title: 'c' },
+      ])
+    })
+
+    await t.test('_page + _limit keeps the v1 pagination shape', async () => {
+      const response = await fetch(`http://localhost:${port}/posts?_page=1&_limit=2`)
+      assert.equal(response.status, 200)
+      const data = await response.json()
+      assert.deepEqual(data, {
+        first: 1,
+        prev: null,
+        next: 2,
+        last: 2,
+        pages: 2,
+        items: 3,
+        data: [
+          { id: '1', title: 'a' },
+          { id: '2', title: 'b' },
+        ],
+      })
+    })
+
+    await t.test('_expand embeds the parent on a list', async () => {
+      const response = await fetch(`http://localhost:${port}/comments?_expand=post`)
+      assert.equal(response.status, 200)
+      const data = await response.json()
+      assert.deepEqual(data, [{ id: '1', postId: '1', post: { id: '1', title: 'a' } }])
+    })
+
+    await t.test('_expand embeds the parent on a single item', async () => {
+      const response = await fetch(`http://localhost:${port}/comments/1?_expand=post`)
+      assert.equal(response.status, 200)
+      const data = await response.json()
+      assert.deepEqual(data, { id: '1', postId: '1', post: { id: '1', title: 'a' } })
+    })
+  })
+
   await t.test('POST /posts with array body returns 400', async () => {
     const response = await fetch(`http://localhost:${port}/posts`, {
       method: 'POST',

@@ -217,11 +217,39 @@ GET /posts?_page=1&_per_page=25
 - `_per_page` defaults to `10` if not specified
 - Invalid `_page` or `_per_page` values are automatically normalized to valid ranges
 
+### Pagination (v0 compatible)
+
+For projects migrating from v0, the legacy slice parameters are still supported:
+
+```http
+GET /posts?_limit=10              # First 10 items
+GET /posts?_start=10&_limit=10    # 10 items starting at index 10
+GET /posts?_start=10&_end=20      # Items from index 10 (inclusive) to 20 (exclusive)
+GET /posts?_end=20                # First 20 items
+```
+
+These return a plain array — the same shape as a non-paginated list — so no extra
+adaptation is needed on the client.
+
+They also compose with the v1 params:
+
+- `_limit` / `_start` / `_end` are applied **after** `_sort`.
+- When combined with `_page`, `_limit` is used as the page size if `_per_page` is
+  not provided, and the response keeps the `_page` object shape shown above.
+- `_end` is exclusive and takes precedence over `_limit` when both are present.
+
 ### Embed
 
 ```http
 GET /posts?_embed=comments
 GET /comments?_embed=post
+```
+
+`_expand` is supported as a v0-compatible alias of `_embed` (and can be combined with it):
+
+```http
+GET /comments?_expand=post        # same as _embed=post
+GET /posts?_embed=comments&_expand=author
 ```
 
 ### Complex filter with `_where`
@@ -256,8 +284,8 @@ Static files are served with standard MIME types and can include HTML, CSS, Java
 If you are upgrading from json-server v0.x, note these behavioral changes:
 
 - **ID handling:** `id` is always a string and will be auto-generated if not provided
-- **Pagination:** Use `_per_page` with `_page` instead of the deprecated `_limit` parameter
-- **Relationships:** Use `_embed` instead of `_expand` for including related resources
+- **Pagination:** `_page` now returns an object (see [Pagination](#pagination)). The v0 `_limit`, `_start` and `_end` parameters are still supported and return a plain array (see [Pagination (v0 compatible)](#pagination-v0-compatible))
+- **Relationships:** `_embed` is preferred, but `_expand` is still supported as an alias for including related resources
 - **Request delays:** Use browser DevTools (Network tab > throttling) instead of the removed `--delay` CLI option
 
 > **New to json-server?** These notes are for users migrating from v0. If this is your first time using json-server, you can ignore this section.

@@ -57,11 +57,11 @@ beforeEach(() => {
 })
 
 await test('findById', () => {
-  const cases: [[string, string, { _embed?: string[] | string }], unknown][] = [
+  const cases: [[string, string, { embed?: string[] | string }], unknown][] = [
     [[POSTS, '1', {}], db.data?.[POSTS]?.[0]],
     [[POSTS, UNKNOWN_ID, {}], undefined],
-    [[POSTS, '1', { _embed: ['comments'] }], { ...post1, comments: [comment1] }],
-    [[COMMENTS, '1', { _embed: ['post'] }], { ...comment1, post: post1 }],
+    [[POSTS, '1', { embed: ['comments'] }], { ...post1, comments: [comment1] }],
+    [[COMMENTS, '1', { embed: ['post'] }], { ...comment1, post: post1 }],
     [[UNKNOWN_RESOURCE, '1', {}], undefined],
   ]
 
@@ -73,24 +73,68 @@ await test('findById', () => {
 await test('find', async (t) => {
   const whereFromPayload = JSON.parse('{"author":{"name":{"eq":"bar"}}}') as JsonObject
 
-  const cases: [{ where: JsonObject; sort?: string; page?: number; perPage?: number }, unknown][] =
+  const cases: [
+    {
+      where: JsonObject
+      sort?: string
+      page?: number
+      perPage?: number
+      limit?: number
+      start?: number
+      end?: number
+    },
+    unknown,
+  ][] = [
+    [{ where: { title: { eq: 'b' } } }, [post2]],
+    [{ where: whereFromPayload }, [post2]],
+    [{ where: {}, sort: '-views' }, [post3, post2, post1]],
     [
-      [{ where: { title: { eq: 'b' } } }, [post2]],
-      [{ where: whereFromPayload }, [post2]],
-      [{ where: {}, sort: '-views' }, [post3, post2, post1]],
-      [
-        { where: {}, page: 2, perPage: 2 },
-        {
-          first: 1,
-          prev: 1,
-          next: null,
-          last: 2,
-          pages: 2,
-          items: 3,
-          data: [post3],
-        },
-      ],
-    ]
+      { where: {}, page: 2, perPage: 2 },
+      {
+        first: 1,
+        prev: 1,
+        next: null,
+        last: 2,
+        pages: 2,
+        items: 3,
+        data: [post3],
+      },
+    ],
+    // Backward-compatible (v0) slice pagination
+    [{ where: {}, limit: 2 }, [post1, post2]],
+    [{ where: {}, start: 1 }, [post2, post3]],
+    [{ where: {}, end: 2 }, [post1, post2]],
+    [{ where: {}, start: 1, end: 2 }, [post2]],
+    [{ where: {}, start: 1, limit: 1 }, [post2]],
+    // Slice combines with sort
+    [{ where: {}, sort: '-views', limit: 2 }, [post3, post2]],
+    // `_limit` acts as page size when `_page` is set and `_per_page` is absent
+    [
+      { where: {}, page: 1, limit: 2 },
+      {
+        first: 1,
+        prev: null,
+        next: 2,
+        last: 2,
+        pages: 2,
+        items: 3,
+        data: [post1, post2],
+      },
+    ],
+    // `_per_page` wins over `_limit` when both are provided
+    [
+      { where: {}, page: 1, perPage: 1, limit: 2 },
+      {
+        first: 1,
+        prev: null,
+        next: 2,
+        last: 3,
+        pages: 3,
+        items: 3,
+        data: [post1],
+      },
+    ],
+  ]
 
   for (const [opts, expected] of cases) {
     await t.test(JSON.stringify(opts), () => {

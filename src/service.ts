@@ -93,12 +93,12 @@ export class Service {
     return Object.prototype.hasOwnProperty.call(this.#db?.data, name)
   }
 
-  findById(name: string, id: string, query: { _embed?: string[] | string }): Item | undefined {
+  findById(name: string, id: string, query: { embed?: string[] | string }): Item | undefined {
     const value = this.#get(name)
 
     if (Array.isArray(value)) {
       let item = value.find((item) => item['id'] === id)
-      ensureArray(query._embed).forEach((related) => {
+      ensureArray(query.embed).forEach((related) => {
         if (item !== undefined) item = embed(this.#db, name, item, related)
       })
       return item
@@ -115,6 +115,9 @@ export class Service {
       page?: number
       perPage?: number
       embed?: string | string[]
+      limit?: number
+      start?: number
+      end?: number
     },
   ): Item[] | PaginatedItems | Item | undefined {
     const items = this.#get(name)
@@ -135,8 +138,18 @@ export class Service {
       results = sortOn(results, opts.sort.split(','))
     }
 
+    // Page-based pagination (v1). For backward compatibility, `_limit` acts as the
+    // page size when `_page` is set and `_per_page` is not provided.
     if (opts.page !== undefined) {
-      return paginate(results, opts.page, opts.perPage ?? 10)
+      return paginate(results, opts.page, opts.perPage ?? opts.limit ?? 10)
+    }
+
+    // Slice-based pagination (v0): `_start`, `_end` and `_limit`. `_end` is exclusive
+    // and takes precedence over `_limit` when both are present.
+    if (opts.limit !== undefined || opts.start !== undefined || opts.end !== undefined) {
+      const start = opts.start ?? 0
+      const end = opts.end ?? (opts.limit !== undefined ? start + opts.limit : undefined)
+      return results.slice(start, end)
     }
 
     return results
