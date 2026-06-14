@@ -9,8 +9,9 @@ import { json } from 'milliparsec'
 import sirv from 'sirv'
 
 import { parseWhere } from './parse-where.ts'
-import type { Data } from './service.ts'
+import type { Data, Item, PaginatedItems } from './service.ts'
 import { isItem, Service } from './service.ts'
+import { toCsv } from './to-csv.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const isProduction = process.env['NODE_ENV'] === 'production'
@@ -25,7 +26,14 @@ const eta = new Eta({
   cache: isProduction,
 })
 
-const RESERVED_QUERY_KEYS = new Set(['_sort', '_page', '_per_page', '_embed', '_where'])
+const RESERVED_QUERY_KEYS = new Set([
+  '_sort',
+  '_page',
+  '_per_page',
+  '_embed',
+  '_where',
+  '_format',
+])
 
 function parseListParams(req: any) {
   const queryString = req.url.split('?')[1] ?? ''
@@ -62,6 +70,7 @@ function parseListParams(req: any) {
     page: Number.isNaN(page) ? undefined : page,
     perPage: Number.isNaN(perPage) ? undefined : perPage,
     embed: req.query['_embed'],
+    format: params.get('_format') ?? undefined,
   }
 }
 
@@ -89,6 +98,45 @@ function withIdAndBody(
     res.locals['data'] = await action(name, id, req.body)
     next?.()
   }
+}
+
+function isPaginatedItems(data: unknown): data is PaginatedItems {
+  return isItem(data) && Array.isArray((data as { data?: unknown }).data)
+}
+
+// Build a download-safe filename stem from the resource name.
+function safeFilename(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'export'
+}
+
+// Serialize the already-filtered/sorted result as a CSV download.
+//
+// Without `_page` the result is the full result set, so the CSV holds every
+// matching row. With `_page` the result is a single page; we surface the
+// pagination meta in headers and tag the filename with the page number so a
+// partial export is never mistaken for the complete data set.
+function sendCsv(res: any, data: unknown, name: string, paginated: boolean): void {
+  let rows: Item[]
+  let filename = safeFilename(name)
+
+  if (paginated && isPaginatedItems(data)) {
+    rows = data.data
+    const currentPage = data.prev !== null ? data.prev + 1 : 1
+    filename += `_page${currentPage}`
+    res.setHeader('X-Total-Count', String(data.items))
+    res.setHeader('X-Total-Pages', String(data.pages))
+    res.setHeader('X-Page', String(currentPage))
+  } else if (Array.isArray(data)) {
+    rows = data
+  } else {
+    rows = [data as Item]
+  }
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`)
+  // Prefix a UTF-8 BOM so spreadsheet apps detect the encoding and render
+  // non-ASCII characters correctly instead of as mojibake.
+  res.send(`\uFEFF${toCsv(rows)}`)
 }
 
 export function createApp(db: Low<Data>, options: AppOptions = {}) {
@@ -122,7 +170,7 @@ export function createApp(db: Low<Data>, options: AppOptions = {}) {
 
   app.get('/:name', (req, res, next) => {
     const { name = '' } = req.params
-    const { where, sort, page, perPage, embed } = parseListParams(req)
+    const { where, sort, page, perPage, embed, format } = parseListParams(req)
 
     res.locals['data'] = service.find(name, {
       where,
@@ -131,6 +179,9 @@ export function createApp(db: Low<Data>, options: AppOptions = {}) {
       perPage,
       embed,
     })
+    res.locals['format'] = format
+    res.locals['resourceName'] = name
+    res.locals['paginated'] = page !== undefined
     next?.()
   })
 
@@ -160,10 +211,18 @@ export function createApp(db: Low<Data>, options: AppOptions = {}) {
     const { data } = res.locals
     if (data === undefined) {
       res.status(404).json({ error: 'Not Found' })
-    } else {
-      if (req.method === 'POST') res.status(201)
-      res.json(data)
+      return
     }
+
+    // CSV export is opt-in via `?_format=csv` on a list GET and never changes
+    // the default JSON behavior for any other request.
+    if (req.method === 'GET' && res.locals['format'] === 'csv') {
+      sendCsv(res, data, res.locals['resourceName'] ?? '', res.locals['paginated'] === true)
+      return
+    }
+
+    if (req.method === 'POST') res.status(201)
+    res.json(data)
   })
 
   return app
