@@ -121,6 +121,7 @@ JSON Server supports advanced querying out of the box:
 
 ```http
 GET /posts?views:gt=100                  # Filter by condition
+GET /posts?_q=keyword                    # Full-text keyword search
 GET /posts?_sort=-views                  # Sort by field (descending)
 GET /posts?_page=1&_per_page=10          # Pagination
 GET /posts?_embed=comments               # Include relations
@@ -181,6 +182,43 @@ GET /posts?author.name:eq=typicode
 GET /posts?title:contains=hello
 GET /posts?title:startsWith=Hello
 GET /posts?title:endsWith=world
+```
+
+### Full-text search
+
+Use `_q` to search a keyword across **all** fields of a resource without writing
+conditions. It's the quickest way to wire up a search box.
+
+```http
+GET /posts?_q=title          # Match any post containing "title"
+GET /posts?_q=hello%20world  # Spaces are fine (URL-encode them)
+GET /posts?_q=100            # Numbers are matched as text too
+```
+
+The search is:
+
+- **Case-insensitive** – `?_q=HELLO` and `?_q=hello` behave the same.
+- **Deep** – nested objects and arrays are searched too, so values like
+  `author.name` or items in a `tags` array are matched.
+- **Number-aware** – numeric values are compared as strings, so `?_q=200`
+  matches `"views": 200`.
+- **Forgiving** – a missing, empty, or whitespace-only `_q` is ignored and the
+  full list is returned, so the endpoint never breaks on bad input. Booleans are
+  not searchable.
+
+It composes with every other list option (conditions, `_sort`, `_page`,
+`_per_page`, `_embed`):
+
+```http
+GET /posts?_q=hello&_sort=-views&_page=1&_per_page=10
+GET /posts?_q=hello&published:eq=true
+```
+
+To also search related resources, include them with `_embed` first – embedded
+data is searched as well:
+
+```http
+GET /posts?_q=comment&_embed=comments   # Match posts by their comments' text
 ```
 
 ### Sort

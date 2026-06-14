@@ -25,7 +25,7 @@ const eta = new Eta({
   cache: isProduction,
 })
 
-const RESERVED_QUERY_KEYS = new Set(['_sort', '_page', '_per_page', '_embed', '_where'])
+const RESERVED_QUERY_KEYS = new Set(['_sort', '_page', '_per_page', '_embed', '_where', '_q'])
 
 function parseListParams(req: any) {
   const queryString = req.url.split('?')[1] ?? ''
@@ -58,6 +58,7 @@ function parseListParams(req: any) {
 
   return {
     where,
+    q: params.get('_q') ?? undefined,
     sort: params.get('_sort') ?? undefined,
     page: Number.isNaN(page) ? undefined : page,
     perPage: Number.isNaN(perPage) ? undefined : perPage,
@@ -122,10 +123,11 @@ export function createApp(db: Low<Data>, options: AppOptions = {}) {
 
   app.get('/:name', (req, res, next) => {
     const { name = '' } = req.params
-    const { where, sort, page, perPage, embed } = parseListParams(req)
+    const { where, q, sort, page, perPage, embed } = parseListParams(req)
 
     res.locals['data'] = service.find(name, {
       where,
+      q,
       sort,
       page,
       perPage,

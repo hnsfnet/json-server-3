@@ -73,24 +73,51 @@ await test('findById', () => {
 await test('find', async (t) => {
   const whereFromPayload = JSON.parse('{"author":{"name":{"eq":"bar"}}}') as JsonObject
 
-  const cases: [{ where: JsonObject; sort?: string; page?: number; perPage?: number }, unknown][] =
+  const cases: [
+    { where: JsonObject; q?: string; sort?: string; page?: number; perPage?: number },
+    unknown,
+  ][] = [
+    [{ where: { title: { eq: 'b' } } }, [post2]],
+    [{ where: whereFromPayload }, [post2]],
+    [{ where: {}, sort: '-views' }, [post3, post2, post1]],
     [
-      [{ where: { title: { eq: 'b' } } }, [post2]],
-      [{ where: whereFromPayload }, [post2]],
-      [{ where: {}, sort: '-views' }, [post3, post2, post1]],
-      [
-        { where: {}, page: 2, perPage: 2 },
-        {
-          first: 1,
-          prev: 1,
-          next: null,
-          last: 2,
-          pages: 2,
-          items: 3,
-          data: [post3],
-        },
-      ],
-    ]
+      { where: {}, page: 2, perPage: 2 },
+      {
+        first: 1,
+        prev: 1,
+        next: null,
+        last: 2,
+        pages: 2,
+        items: 3,
+        data: [post3],
+      },
+    ],
+    // _q searches nested fields (author.name) and arrays (tags)
+    [{ where: {}, q: 'foo' }, [post1, post3]],
+    // _q is case-insensitive
+    [{ where: {}, q: 'FOO' }, [post1, post3]],
+    // _q coerces numbers to strings (views: 200)
+    [{ where: {}, q: '200' }, [post2]],
+    // _q works together with sort
+    [{ where: {}, q: 'foo', sort: '-views' }, [post3, post1]],
+    // _q works together with _where
+    [{ where: { published: { eq: false } }, q: 'foo' }, [post3]],
+    // _q works together with pagination
+    [
+      { where: {}, q: 'bar', page: 1, perPage: 1 },
+      {
+        first: 1,
+        prev: null,
+        next: 2,
+        last: 2,
+        pages: 2,
+        items: 2,
+        data: [post1],
+      },
+    ],
+    // Blank _q is ignored and returns everything
+    [{ where: {}, q: '   ' }, [post1, post2, post3]],
+  ]
 
   for (const [opts, expected] of cases) {
     await t.test(JSON.stringify(opts), () => {

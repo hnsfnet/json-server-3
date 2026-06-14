@@ -147,6 +147,81 @@ await test('createApp', async (t) => {
     assert.deepEqual(data, [{ id: '1', title: 'foo' }])
   })
 
+  await t.test('GET /posts?_q=... keyword search', async (t) => {
+    const post1 = {
+      id: '1',
+      title: 'Hello World',
+      views: 100,
+      author: { name: 'Alice' },
+      tags: ['news'],
+    }
+    const post2 = {
+      id: '2',
+      title: 'Another Post',
+      views: 200,
+      author: { name: 'Bob' },
+      tags: ['news'],
+    }
+
+    const seed = () => {
+      db.data = {
+        posts: [structuredClone(post1), structuredClone(post2)],
+        comments: [],
+        object: {},
+      }
+    }
+
+    await t.test('matches nested author name', async () => {
+      seed()
+      const response = await fetch(`http://localhost:${port}/posts?_q=alice`)
+      assert.equal(response.status, 200)
+      assert.deepEqual(await response.json(), [post1])
+    })
+
+    await t.test('is case-insensitive', async () => {
+      seed()
+      const response = await fetch(`http://localhost:${port}/posts?_q=HELLO`)
+      assert.equal(response.status, 200)
+      assert.deepEqual(await response.json(), [post1])
+    })
+
+    await t.test('coerces numbers to strings', async () => {
+      seed()
+      const response = await fetch(`http://localhost:${port}/posts?_q=200`)
+      assert.equal(response.status, 200)
+      assert.deepEqual(await response.json(), [post2])
+    })
+
+    await t.test('works with pagination', async () => {
+      seed()
+      const response = await fetch(`http://localhost:${port}/posts?_q=news&_page=1&_per_page=1`)
+      assert.equal(response.status, 200)
+      assert.deepEqual(await response.json(), {
+        first: 1,
+        prev: null,
+        next: 2,
+        last: 2,
+        pages: 2,
+        items: 2,
+        data: [post1],
+      })
+    })
+
+    await t.test('blank keyword returns all items', async () => {
+      seed()
+      const response = await fetch(`http://localhost:${port}/posts?_q=${encodeURIComponent('   ')}`)
+      assert.equal(response.status, 200)
+      assert.deepEqual(await response.json(), [post1, post2])
+    })
+
+    await t.test('missing keyword returns all items', async () => {
+      seed()
+      const response = await fetch(`http://localhost:${port}/posts?_q=`)
+      assert.equal(response.status, 200)
+      assert.deepEqual(await response.json(), [post1, post2])
+    })
+  })
+
   await t.test('POST /posts with array body returns 400', async () => {
     const response = await fetch(`http://localhost:${port}/posts`, {
       method: 'POST',

@@ -6,6 +6,7 @@ import type { JsonObject } from 'type-fest'
 import { matchesWhere } from './matches-where.ts'
 import { paginate, type PaginationResult } from './paginate.ts'
 import { randomId } from './random-id.ts'
+import { matchesSearch, normalizeSearchTerm } from './search.ts'
 export type Item = Record<string, unknown>
 
 export type Data = Record<string, Item[] | Item>
@@ -111,6 +112,7 @@ export class Service {
     name: string,
     opts: {
       where: JsonObject
+      q?: string
       sort?: string
       page?: number
       perPage?: number
@@ -131,6 +133,14 @@ export class Service {
     })
 
     results = results.filter((item) => matchesWhere(item as JsonObject, opts.where))
+
+    // Full-text keyword search (runs after embed so related data is searchable,
+    // and before sort/paginate so paging reflects the filtered set).
+    const q = normalizeSearchTerm(opts.q)
+    if (q !== null) {
+      results = results.filter((item) => matchesSearch(item, q))
+    }
+
     if (opts.sort) {
       results = sortOn(results, opts.sort.split(','))
     }
