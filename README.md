@@ -125,6 +125,7 @@ GET /posts?_sort=-views                  # Sort by field (descending)
 GET /posts?_page=1&_per_page=10          # Pagination
 GET /posts?_embed=comments               # Include relations
 GET /posts?_where={"or":[...]}           # Complex queries
+GET /posts?_q=keyword                    # Full-text keyword search
 ```
 
 See detailed documentation below for each feature.
@@ -230,6 +231,61 @@ GET /comments?_embed=post
 
 ```http
 GET /posts?_where={"or":[{"views":{"gt":100}},{"author":{"name":{"lt":"m"}}}]}
+```
+
+### Keyword search with `_q`
+
+Use `_q` to perform a simple keyword search across all fields (including nested objects and arrays). Unlike `_where` which requires you to specify exact field names and operators, `_q` lets you search with a single keyword — ideal for building search boxes and quick filters.
+
+**Features:**
+- Case-insensitive matching
+- Searches all string fields including nested objects (e.g. `author.name`)
+- Numbers and booleans are coerced to strings for matching
+- Works with `_sort`, `_page`, `_per_page`, `_embed`, and `_where`
+- Empty or whitespace-only keywords are safely ignored (returns all items)
+
+```http
+GET /posts?_q=hello
+GET /posts?_q=typicode
+GET /posts?_q=100
+```
+
+**Example with pagination and sort:**
+
+```http
+GET /posts?_q=guide&_sort=-views&_page=1&_per_page=10
+```
+
+**Example combined with `_where` (keyword search + structured filter):**
+
+```http
+GET /posts?_q=hello&_where={"published":{"eq":true}}
+```
+
+**Example response:**
+
+Given this data:
+```json
+{
+  "posts": [
+    { "id": "1", "title": "Hello World", "author": { "name": "Alice" }, "views": 100 },
+    { "id": "2", "title": "JSON Server Guide", "author": { "name": "Bob" }, "views": 200 },
+    { "id": "3", "title": "Another Post", "author": { "name": "Alice" }, "views": 50 }
+  ]
+}
+```
+
+Request:
+```http
+GET /posts?_q=alice
+```
+
+Response:
+```json
+[
+  { "id": "1", "title": "Hello World", "author": { "name": "Alice" }, "views": 100 },
+  { "id": "3", "title": "Another Post", "author": { "name": "Alice" }, "views": 50 }
+]
 ```
 
 ## Delete dependents

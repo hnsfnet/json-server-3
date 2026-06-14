@@ -99,6 +99,64 @@ await test('find', async (t) => {
   }
 })
 
+await test('find with keyword search (q)', async (t) => {
+  await t.test('searches top-level string fields', () => {
+    const result = service.find(POSTS, { where: {}, q: 'a' })
+    assert.deepEqual(result, [post1, post2, post3]) // all have 'a' somewhere (title or author)
+  })
+
+  await t.test('searches nested object fields', () => {
+    const result = service.find(POSTS, { where: {}, q: 'foo' })
+    assert.deepEqual(result, [post1, post3]) // post1 author.name='foo', post3 tags=['foo']
+  })
+
+  await t.test('searches number fields via string coercion', () => {
+    const result = service.find(POSTS, { where: {}, q: '200' })
+    assert.deepEqual(result, [post2]) // post2 views is 200
+  })
+
+  await t.test('case-insensitive search', () => {
+    const result = service.find(POSTS, { where: {}, q: 'FOO' })
+    assert.deepEqual(result, [post1, post3])
+  })
+
+  await t.test('empty q returns all items', () => {
+    const result = service.find(POSTS, { where: {}, q: '' })
+    assert.deepEqual(result, [post1, post2, post3])
+  })
+
+  await t.test('whitespace-only q returns all items', () => {
+    const result = service.find(POSTS, { where: {}, q: '   ' })
+    assert.deepEqual(result, [post1, post2, post3])
+  })
+
+  await t.test('q combined with where filter', () => {
+    const result = service.find(POSTS, { where: { published: { eq: true } }, q: 'foo' })
+    assert.deepEqual(result, [post1])
+  })
+
+  await t.test('q combined with sort', () => {
+    const result = service.find(POSTS, { where: {}, q: 'bar', sort: '-views' })
+    // post2 (views:200, author.name:'bar', tags:['bar']) and post1 (tags:['bar']) and post3 (tags: no 'bar' but author 'baz' has no bar)
+    // post1 has tags ['foo','bar'] and author 'foo' => title 'a' doesn't match 'bar' but tags do
+    // post2 has author 'bar' and tags ['bar']
+    // Actually post1 author.name='foo' doesn't contain 'bar', but tags=['foo','bar'] does
+    assert.deepEqual(result, [post2, post1])
+  })
+
+  await t.test('q combined with pagination', () => {
+    const result = service.find(POSTS, { where: {}, q: 'a', page: 1, perPage: 2 }) as any
+    assert.equal(result.items, 3)
+    assert.equal(result.data.length, 2)
+    assert.equal(result.pages, 2)
+  })
+
+  await t.test('q with no matches returns empty array', () => {
+    const result = service.find(POSTS, { where: {}, q: 'zzzznotfound' })
+    assert.deepEqual(result, [])
+  })
+})
+
 await test('create', async () => {
   const post = { title: 'new post' }
   let res = await service.create(POSTS, post)

@@ -6,6 +6,7 @@ import type { JsonObject } from 'type-fest'
 import { matchesWhere } from './matches-where.ts'
 import { paginate, type PaginationResult } from './paginate.ts'
 import { randomId } from './random-id.ts'
+import { matchesSearch } from './search.ts'
 export type Item = Record<string, unknown>
 
 export type Data = Record<string, Item[] | Item>
@@ -115,6 +116,7 @@ export class Service {
       page?: number
       perPage?: number
       embed?: string | string[]
+      q?: string
     },
   ): Item[] | PaginatedItems | Item | undefined {
     const items = this.#get(name)
@@ -129,6 +131,11 @@ export class Service {
     ensureArray(opts.embed).forEach((related) => {
       results = results.map((item) => embed(this.#db, name, item, related))
     })
+
+    // Keyword search (deep, case-insensitive)
+    if (opts.q !== undefined) {
+      results = results.filter((item) => matchesSearch(item as JsonObject, opts.q!))
+    }
 
     results = results.filter((item) => matchesWhere(item as JsonObject, opts.where))
     if (opts.sort) {

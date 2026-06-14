@@ -1,4 +1,4 @@
-   import assert from 'node:assert/strict'
+import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -145,6 +145,76 @@ await test('createApp', async (t) => {
     assert.equal(response.status, 200)
     const data = await response.json()
     assert.deepEqual(data, [{ id: '1', title: 'foo' }])
+  })
+
+  await t.test('GET /posts?_q=... performs keyword search', async () => {
+    db.data = {
+      posts: [
+        { id: '1', title: 'Hello World', author: { name: 'Alice' } },
+        { id: '2', title: 'JSON Server Guide', author: { name: 'Bob' } },
+        { id: '3', title: 'Another Post', author: { name: 'Alice' } },
+      ],
+      comments: [{ id: '1', postId: '1' }],
+      object: { f1: 'foo' },
+    }
+    const response = await fetch(`http://localhost:${port}/posts?_q=alice`)
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.equal(data.length, 2)
+    assert.deepEqual(
+      data.map((p: any) => p.id),
+      ['1', '3'],
+    )
+  })
+
+  await t.test('GET /posts?_q=... searches nested fields', async () => {
+    const response = await fetch(`http://localhost:${port}/posts?_q=hello`)
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.equal(data.length, 1)
+    assert.equal(data[0].id, '1')
+  })
+
+  await t.test('GET /posts?_q=... works with pagination', async () => {
+    const response = await fetch(`http://localhost:${port}/posts?_q=alice&_page=1&_per_page=1`)
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.equal(data.items, 2)
+    assert.equal(data.data.length, 1)
+    assert.equal(data.pages, 2)
+  })
+
+  await t.test('GET /posts?_q=... works with sort', async () => {
+    const response = await fetch(`http://localhost:${port}/posts?_q=alice&_sort=-title`)
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.equal(data.length, 2)
+    assert.equal(data[0].title, 'Hello World')
+    assert.equal(data[1].title, 'Another Post')
+  })
+
+  await t.test('GET /posts?_q=... empty keyword returns all', async () => {
+    const response = await fetch(`http://localhost:${port}/posts?_q=`)
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.equal(data.length, 3)
+  })
+
+  await t.test('GET /posts?_q=... whitespace-only keyword returns all', async () => {
+    const response = await fetch(`http://localhost:${port}/posts?_q=${encodeURIComponent('   ')}`)
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.equal(data.length, 3)
+  })
+
+  await t.test('GET /posts?_q=... combined with _where', async () => {
+    const response = await fetch(
+      `http://localhost:${port}/posts?_q=alice&_where=${encodeURIComponent(JSON.stringify({ title: { contains: 'hello' } }))}`,
+    )
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.equal(data.length, 1)
+    assert.equal(data[0].id, '1')
   })
 
   await t.test('POST /posts with array body returns 400', async () => {
